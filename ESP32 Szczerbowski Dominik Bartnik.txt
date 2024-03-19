@@ -1,0 +1,209 @@
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WiFiAP.h>
+
+const char *ssid = "KoniowifiESP32";
+const char *password = NULL;
+// Prawidłowe hasło musi zawierać co najmniej 8 znaków
+// Można ustawić hasło jako NULL, aby punkt dostępowy był otwarty.
+
+WiFiServer server(80);
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.println("Configuring access point...");
+  if (!WiFi.softAP(ssid, password)) {
+    log_e("Soft AP creation failed.");
+    while(1);
+  }
+  // Funkcji softAP, służy aby skonfigurować charakterystykę Wi-Fi AP
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(myIP);
+  server.begin();
+  Serial.println("Server started");
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  WiFiClient client = server.accept();
+  // Nasłuchuj przychodzących klientów
+  if (client) {
+    // W momencie pojawienia się klienta
+    Serial.println("New Client.");
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        // Jeśli są bajty do odczytania od klienta
+        char c = client.read();
+        Serial.write(c);
+        if (c == '\n') {
+          // Jeśli bieżąca linia jest pusta, w wierszu znajdują się dwa znaki nowej linii.
+          // To koniec żądania HTTP klienta, więc wyślij odpowiedź:
+          if (currentLine.length() == 0) {
+            // Nagłówki HTTP zawsze zaczynają się od kodu odpowiedzi (np. HTTP/1.1 200 OK)
+            // oraz typ zawartości, aby klient wiedział, co się wydarzy, a następnie pusta linia:
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println();
+            // Treść odpowiedzi HTTP następuje po nagłówku:
+            client.print(R"(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prosty Kalkulator</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            text-align: center;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        #calculator {
+            width: 80%;
+            max-width: 300px;
+            margin: 100px auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        input {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 21%;
+            padding: 10px;
+            font-size: 16px;
+            margin: 1%;
+            cursor: pointer;
+        }
+
+        button.operator {
+            background-color: #4caf50;
+            color: #fff;
+        }
+
+        button.equal {
+            width: 48%;
+            background-color: #ff9800;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+<div id="calculator">
+    <input type="text" id="display" readonly>
+    <br>
+    <button data-value="1">1</button>
+    <button data-value="2">2</button>
+    <button data-value="3">3</button>
+    <button class="operator" data-value="+">+</button>
+    <br>
+    <button data-value="4">4</button>
+    <button data-value="5">5</button>
+    <button data-value="6">6</button>
+    <button class="operator" data-value="-">-</button>
+    <br>
+    <button data-value="7">7</button>
+    <button data-value="8">8</button>
+    <button data-value="9">9</button>
+    <button class="operator" data-value="*">*</button>
+    <br>
+    <button data-value="backspace">Cofnij</button>
+    <button data-value="0">0</button>
+    <button data-value="C">C</button>
+    <button class="operator" data-value="/">/</button>
+    <br>
+    <button class="equal" data-value="=">=</button>
+</div>
+
+<script>
+    document.querySelectorAll('#calculator button').forEach(button => {
+        button.addEventListener('click', () => {
+            handleButtonClick(button.getAttribute('data-value'));
+        });
+    });
+
+    function handleButtonClick(value) {
+        if (value === '=') {
+            calculate();
+        } else if (value === 'C') {
+            clearDisplay();
+        } else if (value === 'backspace') {
+            backspace();
+        } else {
+            appendToDisplay(value);
+        }
+    }
+
+    function appendToDisplay(value) {
+        document.getElementById('display').value += value;
+    }
+
+    function calculate() {
+        try {
+            document.getElementById('display').value = eval(document.getElementById('display').value);
+        } catch (error) {
+            document.getElementById('display').value = 'Error';
+        }
+    }
+
+    function clearDisplay() {
+        document.getElementById('display').value = '';
+    }
+
+    function backspace() {
+        var currentValue = document.getElementById('display').value;
+        document.getElementById('display').value = currentValue.slice(0, -1);
+    }
+</script>
+
+</body>
+</html>
+
+            )");
+            client.print("Click <a href=\"/H\">here</a> to turn ON the LED.<br>");
+            client.print("Click <a href=\"/L\">here</a> to turn OFF the LED.<br>");
+            // Odpowiedź HTTP kończy się kolejną pustą linią:
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          // Jeśli masz coś innego niż znak powrotu
+          // Dodaj zawartość na końcu bieżącej linii,
+          currentLine += c;
+        }
+        // Sprawdź, czy żądanie klienta brzmiało „GET /H” czy „GET /L”:
+        if (currentLine.endsWith("GET /H")) {
+          digitalWrite(LED_BUILTIN, HIGH);
+        }
+        if (currentLine.endsWith("GET /L")) {
+          digitalWrite(LED_BUILTIN, LOW);
+        }
+      }
+    }
+    client.stop();
+    // Zamknij połączenie do momentu pojawienia się nowego klienta, czyli wejście pod adres:
+    // 192.168.1.4
+    // 192.168.1.4/H
+    // 192.168.1.4/L
+    Serial.println("Client Disconnected.");
+  }
+  delay(100);
+}
